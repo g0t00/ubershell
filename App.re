@@ -1,7 +1,9 @@
 open Revery;
+open Unix;
 open Revery.Math;
 open Revery.UI;
 open Revery.UI.Components;
+open Sys;
 
 let animatedText = {
   let component = React.component("AnimatedText");
@@ -86,11 +88,33 @@ let simpleButton = {
       );
     });
 };
+let squareBox = (~children as _,~textContent, ()) => {
+      let textHeaderStyle =
+        Style.[
+          color(Colors.white),
+          fontFamily("Roboto-Regular.ttf"),
+          fontSize(24),
+        ];
+  <Text style=textHeaderStyle text=textContent />;
+};
 
 let init = app => {
   let _ = Revery.Log.listen((_, msg) => print_endline("LOG: " ++ msg));
 
   let win = App.createWindow(app, "Welcome to Revery!");
+  /* let test2 = string_of_int(Sys.command("sleep 10 && echo asd")); */
+
+  let cat = Unix.open_process_in("echo asdyolo");
+  /* let test2 = input_line(cat); */
+  let test = ref("");
+  print_endline("test: " ++ test^);
+  Tick.interval((t) => {
+    switch (input_line(cat)) {
+      | text => test := test^ ++ text
+      | exception End_of_file => print_endline("EOF")
+      };
+    /* print_endline("Time: " ++ string_of_float(Time.toSeconds(t))); */
+  }, Seconds(0.1));
 
   let containerStyle =
     Style.[
@@ -111,7 +135,11 @@ let init = app => {
         <animatedText delay=0.0 textContent="Welcome" />
         <animatedText delay=0.5 textContent="to" />
         <animatedText delay=1. textContent="Revery" />
+        <squareBox textContent=test^ />
+
+        /* <Text text="asd" /> */
       </View>
+      /* <Text text="aaa" /> */
       <simpleButton />
     </View>;
 

@@ -6,4 +6,5 @@
         bigarray
         reglfw
         Revery
+        async
             ))

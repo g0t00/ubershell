@@ -4,117 +4,89 @@ open Revery.Math;
 open Revery.UI;
 open Revery.UI.Components;
 open Sys;
+/* open Async.Std; */
 
-let animatedText = {
-  let component = React.component("AnimatedText");
 
-  (~children as _: list(React.syntheticElement), ~delay, ~textContent, ()) =>
-    component(hooks => {
-      let (translate, hooks) =
-        Hooks.animation(
-          Animated.floatValue(50.),
-          Animated.options(
-            ~toValue=0.,
-            ~duration=Seconds(0.5),
-            ~delay=Seconds(delay),
-            (),
-          ),
-          hooks,
-        );
+  type state = {
+    procIn: option(out_channel),
+    running: bool,
+    text: string
+  };
+  type action =
+    | SetRunning(bool)
+    | SetProcIn(Pervasives.out_channel)
+    | AddString(string);
 
-      let (opacityVal: float, hooks) =
-        Hooks.animation(
-          Animated.floatValue(0.),
-          Animated.options(
-            ~toValue=1.0,
-            ~duration=Seconds(1.),
-            ~delay=Seconds(delay),
-            (),
-          ),
-          hooks,
-        );
+  let reducer = (a, state) =>
+    switch (a) {
+      | SetRunning(v) => {...state, running: v}
+      | SetProcIn(v) => {...state, procIn: Some(v)}
+      | AddString(v) => {...state, text: state.text ++ v}
+      };
+module Terminal = {
+  let component = React.component("Terminal");
 
+
+  let createElement = (~children, ()) => component(hooks => {
+      let (state, dispatch, hooks) = Hooks.reducer(~initialState={procIn: None, running: false, text: ""}, reducer, hooks);
+      if (state.running === false) {
+        let (stdout, stdin) = Unix.open_process("zsh");
+        Unix.set_nonblock(Unix.descr_of_in_channel(stdout));
+        print_endline("setup");
+        /* output_string(stdin, "echo asd\nsleep 3\necho yolo\n"); */
+        /* flush(stdin); */
+        dispatch(SetProcIn(stdin));
+          /* print_endline("test: " ++ input_line(cmd)) */
+        let _ = Tick.interval(t => {
+          /* print_endline("tick") */
+            switch (input_char(stdout)) {
+            | text =>
+            print_endline("read: " ++ String.make(1, text))
+              dispatch(AddString(String.make(1, text)))
+            | exception End_of_file => print_endline("EOF")
+            | exception Sys_blocked_io => ()
+            };
+            }, Seconds(0.));
+        dispatch(SetRunning(true));
+      }
       let textHeaderStyle =
-        Style.[
-          color(Colors.white),
-          fontFamily("Roboto-Regular.ttf"),
-          fontSize(24),
-          transform([Transform.TranslateY(translate)]),
-        ];
+      Style.[
+      color(Colors.white),
+      fontFamily("Roboto-Regular.ttf"),
+      fontSize(24),
+      ];
+      let handleKeyDown = (evt: NodeEvents.keyEventParams) =>
+        switch (state.procIn) {
+          | Some(procIn) => {
+            let char = switch(evt.key) {
+              | Key.KEY_ENTER => "\n"
+              | _ => Key.toString(evt.key)
+              };
+            output_string(procIn, char);
+            flush(procIn);
+            dispatch(AddString(char));
+          };
+          | None => print_endline("procin not set")
+          };
+      let renderLine = line => <Text style=textHeaderStyle text=line/>;
+      let lines = Str.split(Str.regexp("\n"), state.text);
+      let lines = List.map(renderLine, lines);
+      /* let lines = [<Text style=textHeaderStyle text="asd" />]; */
+      (hooks,
+       <View ref={r => Focus.focus(r)} style=Style.[position(`Absolute), width(500), height(500), color(Colors.red), border(~color=Colors.red, ~width=5)] onKeyDown=handleKeyDown>
+         <View>...lines </View>
+       </View>)
 
-      (
-        hooks,
-        <Opacity opacity=opacityVal>
-          <Padding padding=8>
-            <Text style=textHeaderStyle text=textContent />
-          </Padding>
-        </Opacity>,
-      );
+
+
     });
 };
-
-let simpleButton = {
-  let component = React.component("SimpleButton");
-
-  (~children as _: list(React.syntheticElement), ()) =>
-    component(hooks => {
-      let (count, setCount, hooks) = React.Hooks.state(0, hooks);
-      let increment = () => setCount(count + 1);
-
-      let wrapperStyle =
-        Style.[
-          backgroundColor(Color.rgba(1., 1., 1., 0.1)),
-          border(~width=2, ~color=Colors.white),
-          margin(16),
-        ];
-
-      let textHeaderStyle =
-        Style.[
-          color(Colors.white),
-          fontFamily("Roboto-Regular.ttf"),
-          fontSize(20),
-        ];
-
-      let textContent = "Click me: " ++ string_of_int(count);
-      (
-        hooks,
-        <Clickable onClick=increment>
-          <View style=wrapperStyle>
-            <Padding padding=4>
-              <Text style=textHeaderStyle text=textContent />
-            </Padding>
-          </View>
-        </Clickable>,
-      );
-    });
-};
-let squareBox = (~children as _,~textContent, ()) => {
-      let textHeaderStyle =
-        Style.[
-          color(Colors.white),
-          fontFamily("Roboto-Regular.ttf"),
-          fontSize(24),
-        ];
-  <Text style=textHeaderStyle text=textContent />;
-};
-
 let init = app => {
   let _ = Revery.Log.listen((_, msg) => print_endline("LOG: " ++ msg));
 
   let win = App.createWindow(app, "Welcome to Revery!");
-  /* let test2 = string_of_int(Sys.command("sleep 10 && echo asd")); */
 
-  let cat = Unix.open_process_in("echo asdyolo");
   /* let test2 = input_line(cat); */
-  let test = ref("");
-  print_endline("test: " ++ test^);
-  Tick.interval((t) => {
-    switch (input_line(cat)) {
-      | text => test := test^ ++ text
-      | exception End_of_file => print_endline("EOF")
-      };
-    /* print_endline("Time: " ++ string_of_float(Time.toSeconds(t))); */
-  }, Seconds(0.1));
 
   let containerStyle =
     Style.[
@@ -128,21 +100,16 @@ let init = app => {
     ];
 
   let innerStyle = Style.[flexDirection(`Row), alignItems(`FlexEnd)];
-
   let element =
-    <View style=containerStyle>
-      <View style=innerStyle>
-        <animatedText delay=0.0 textContent="Welcome" />
-        <animatedText delay=0.5 textContent="to" />
-        <animatedText delay=1. textContent="Revery" />
-        <squareBox textContent=test^ />
-
-        /* <Text text="asd" /> */
+    <View  style=containerStyle  >
+      <View style=innerStyle >
+        /* <animatedText delay=0.0 textContent="Welcome" /> */
+        /* <animatedText delay=0.5 textContent="to" /> */
+        /* <animatedText delay=1. textContent="Revery" /> */
+        <Terminal  />
       </View>
       /* <Text text="aaa" /> */
-      <simpleButton />
     </View>;
-
   let _ = UI.start(win, element);
   ();
 };
